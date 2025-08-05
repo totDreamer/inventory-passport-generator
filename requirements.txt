@@ -1,0 +1,4 @@
+pandas
+FreeSimpleGUI
+python-docx
+docxtpl
