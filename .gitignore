@@ -1,0 +1,23 @@
+# Python bytecode and virtual environments
+__pycache__/
+*.py[cod]
+.venv/
+
+# Real reference data and expected generated documents (never commit or edit)
+/input/
+/output/
+
+# Temporary files created while generating combined passports
+~temp_*.docx
+
+# Local environment files and credentials
+.env
+.env.*
+.envrc
+*.key
+*.pem
+*.p12
+*.pfx
+secrets/
+secrets.*
+credentials.*
