@@ -29,21 +29,30 @@ def field(name):
 # Вспомогательные функции
 # ==========================================================
 
+def clean_value(value):
+    """Return a trimmed value without leaking missing-value sentinels."""
+
+    if value is None or value != value:
+        return ""
+
+    return str(value).strip()
+
+
 def format_drive(mark, size):
     """
     Формирует строку накопителя.
     """
 
-    mark = str(mark).strip()
-    size = str(size).strip()
+    mark = clean_value(mark)
+    size = clean_value(size)
 
     if not mark and not size:
         return ""
 
     if mark and size:
-        return f"{mark} {size} GB"
+        return f"{mark} {size}GB"
 
-    return mark or f"{size} GB"
+    return mark or f"{size}GB"
 
 
 # ==========================================================
@@ -70,13 +79,13 @@ def build_cpu(data):
     Модель процессора + частота.
     """
 
-    model = str(getattr(data, "cpu_model", "")).strip()
-    freq = str(getattr(data, "cpu_freq", "")).strip()
+    model = clean_value(getattr(data, "cpu_model", ""))
+    freq = clean_value(getattr(data, "cpu_freq", "")).replace(",", ".")
 
     if model and freq:
-        return f"{model}, {freq} GHz"
+        return f"{model}, {freq}GHz"
 
-    return model
+    return model or (f"{freq}GHz" if freq else "")
 
 
 def build_ram(data):
@@ -84,12 +93,13 @@ def build_ram(data):
     Объем оперативной памяти.
     """
 
-    size = str(getattr(data, "ddr_size", "")).strip()
+    memory_type = clean_value(getattr(data, "ddr_type", ""))
+    size = clean_value(getattr(data, "ddr_size", ""))
 
-    if not size:
-        return ""
+    if memory_type and size:
+        return f"{memory_type}, {size}GB"
 
-    return f"{size} GB"
+    return memory_type or (f"{size}GB" if size else "")
 
 
 def build_storage(data):
@@ -97,7 +107,7 @@ def build_storage(data):
     Формирует список накопителей.
     """
 
-    devices = [
+    hard_drives = [
         format_drive(
             getattr(data, "hdd_mark", ""),
             getattr(data, "hdd_size", ""),
@@ -106,13 +116,30 @@ def build_storage(data):
             getattr(data, "hdd2_mark", ""),
             getattr(data, "hdd2_size", ""),
         ),
+    ]
+    solid_state_drives = [
         format_drive(
             getattr(data, "ssd_mark", ""),
             getattr(data, "ssd_size", ""),
         ),
+        format_drive(
+            getattr(data, "ssd2_mark", ""),
+            getattr(data, "ssd2_size", ""),
+        ),
     ]
 
-    return "\n".join(device for device in devices if device)
+    hdd_value = ", ".join(device for device in hard_drives if device)
+    ssd_value = ", ".join(
+        device for device in solid_state_drives if device
+    )
+
+    if hdd_value and ssd_value:
+        return f"{hdd_value}({ssd_value})"
+
+    if ssd_value:
+        return f"({ssd_value})"
+
+    return hdd_value
 
 
 def build_monitor(data):

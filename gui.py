@@ -148,8 +148,6 @@ def run():
 
         print("Excel успешно загружен.\n")
 
-        workflow = get_workflow(values["-DEPARTMENT-"])
-
         # ---------- Генерация инвентаризации ----------
 
         if gen_inv:
@@ -159,7 +157,6 @@ def run():
                 start_row - 1:end_row
             ].to_dict(orient="records")
             inventory_context = InventoryContext(
-                workflow=workflow,
                 object_name=values["-OBJECT_NAME-"].strip(),
                 object_address=values["-OBJECT_ADDRESS-"].strip(),
                 staff_count=calculate_staff_count(selected_records),
@@ -183,6 +180,8 @@ def run():
 
         if gen_passp:
             print("Создание паспортов оборудования...")
+
+            workflow = get_workflow(values["-DEPARTMENT-"])
 
             success, message = generate_passports(
                 df=df,

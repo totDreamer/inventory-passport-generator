@@ -12,10 +12,8 @@ class WorkflowConfig:
 
     id: str
     label: str
-    inventory_template: Path
     passport_template: Path
     input_schema: str
-    inventory_mapper: str
     passport_context_adapter: str
 
 
@@ -25,19 +23,15 @@ WORKFLOWS = {
     "dgd": WorkflowConfig(
         id="dgd",
         label="ДГД / ДГИП / ДВГА",
-        inventory_template=INVENTORY_TEMPLATE_PATH,
         passport_template=BASE_DIR / "templates/passports/dgd.docx",
         input_schema=UNIFIED_INPUT_SCHEMA,
-        inventory_mapper="dgd",
         passport_context_adapter="dgd",
     ),
     "dgk": WorkflowConfig(
         id="dgk",
         label="ДГК",
-        inventory_template=INVENTORY_TEMPLATE_PATH,
         passport_template=BASE_DIR / "templates/passports/dgk.docx",
         input_schema=UNIFIED_INPUT_SCHEMA,
-        inventory_mapper="dgk",
         passport_context_adapter="dgk",
     ),
 }
@@ -46,10 +40,6 @@ WORKFLOW_IDS_BY_LABEL = {
     workflow.label: workflow.id
     for workflow in WORKFLOWS.values()
 }
-
-# Compatibility alias for the current GUI and inventory generator.
-INVENTORY_TEMPLATE = INVENTORY_TEMPLATE_PATH
-
 
 def get_workflow(identifier: str) -> WorkflowConfig:
     """Return a workflow by its stable ID or GUI label."""

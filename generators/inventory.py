@@ -2,6 +2,7 @@ from copy import copy
 
 from openpyxl import load_workbook
 
+from config import INVENTORY_TEMPLATE_PATH
 from generators.inventory_fields import REPORT_FIELDS
 from workflow_context import InventoryContext
 
@@ -34,7 +35,7 @@ def generate_inventory_report(
 
     try:
 
-        workbook = open_template(context.workflow.inventory_template)
+        workbook = open_template(INVENTORY_TEMPLATE_PATH)
         sheet = workbook.active
 
         rows = select_rows(
