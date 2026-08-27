@@ -3,6 +3,7 @@ from copy import copy
 from openpyxl import load_workbook
 
 from generators.inventory_fields import REPORT_FIELDS
+from workflow_context import InventoryContext
 
 
 # ==========================================================
@@ -11,6 +12,9 @@ from generators.inventory_fields import REPORT_FIELDS
 
 FIRST_DATA_ROW = 17
 TEMPLATE_ROW = 17
+OBJECT_NAME_CELL = "A8"
+OBJECT_ADDRESS_CELL = "A10"
+STAFF_COUNT_CELL = "A12"
 
 
 # ==========================================================
@@ -19,7 +23,7 @@ TEMPLATE_ROW = 17
 
 def generate_inventory_report(
     df,
-    template_path,
+    context: InventoryContext,
     output_path,
     start_row,
     end_row,
@@ -30,7 +34,7 @@ def generate_inventory_report(
 
     try:
 
-        workbook = open_template(template_path)
+        workbook = open_template(context.workflow.inventory_template)
         sheet = workbook.active
 
         rows = select_rows(
@@ -38,6 +42,13 @@ def generate_inventory_report(
             start_row,
             end_row,
         )
+
+        if rows.empty:
+            raise ValueError(
+                "В выбранном диапазоне нет записей для создания отчета."
+            )
+
+        fill_inventory_context(sheet, context)
 
         fill_sheet(
             sheet,
@@ -107,99 +118,132 @@ def select_rows(
 def insert_data_row(
     sheet,
     row_number,
+    row_template,
 ):
     """
     Вставляет новую строку
     и полностью копирует оформление строки шаблона.
     """
 
-    sheet.insert_rows(row_number)
-
     copy_row_style(
         sheet,
-        TEMPLATE_ROW,
         row_number,
+        row_template,
     )
 
     copy_row_dimensions(
         sheet,
-        TEMPLATE_ROW,
         row_number,
-    )
-
-    copy_row_merges(
-        sheet,
-        TEMPLATE_ROW,
-        row_number,
+        row_template,
     )
 
 
 def copy_row_style(
     sheet,
-    source_row,
     target_row,
+    row_template,
 ):
     """
     Копирует стили строки.
     """
 
-    for cell in sheet[source_row]:
-
-        target = sheet[
-            f"{cell.column_letter}{target_row}"
-        ]
-
-        if cell.has_style:
-            target._style = copy(cell._style)
-
-        target.font = copy(cell.font)
-        target.fill = copy(cell.fill)
-        target.border = copy(cell.border)
-        target.alignment = copy(cell.alignment)
-        target.protection = copy(cell.protection)
-        target.number_format = copy(cell.number_format)
+    for column, style in row_template["styles"].items():
+        sheet.cell(target_row, column)._style = copy(style)
 
 
 def copy_row_dimensions(
     sheet,
-    source_row,
     target_row,
+    row_template,
 ):
     """
     Копирует высоту строки.
     """
 
-    sheet.row_dimensions[target_row].height = (
-        sheet.row_dimensions[source_row].height
-    )
+    template_dimension = row_template["dimension"]
+    target_dimension = sheet.row_dimensions[target_row]
+
+    for attribute in (
+        "height",
+        "hidden",
+        "outlineLevel",
+        "collapsed",
+        "thickTop",
+        "thickBot",
+    ):
+        setattr(
+            target_dimension,
+            attribute,
+            copy(getattr(template_dimension, attribute)),
+        )
 
 
-def copy_row_merges(
-    sheet,
-    source_row,
-    target_row,
-):
-    """
-    Копирует объединенные ячейки строки.
-    """
+def capture_row_template(sheet, row_number):
+    """Capture cell styles and row dimensions before rows are inserted."""
 
-    ranges = list(sheet.merged_cells.ranges)
+    return {
+        "styles": {
+            cell.column: copy(cell._style)
+            for cell in sheet[row_number]
+        },
+        "dimension": copy(sheet.row_dimensions[row_number]),
+    }
 
-    for merged in ranges:
 
-        if (
-            merged.min_row == source_row
-            and merged.max_row == source_row
-        ):
+def insert_data_rows(sheet, row_number, amount, row_template):
+    """Insert styled rows and shift template metadata below the table."""
 
-            sheet.merge_cells(
+    merged_ranges = list(sheet.merged_cells.ranges)
+    shifted_merges = []
 
-                start_row=target_row,
-                start_column=merged.min_col,
+    for merged in merged_ranges:
+        if merged.max_row < row_number:
+            continue
 
-                end_row=target_row,
-                end_column=merged.max_col,
+        sheet.unmerge_cells(str(merged))
+
+        if merged.min_row >= row_number:
+            min_row = merged.min_row + amount
+            max_row = merged.max_row + amount
+        else:
+            min_row = merged.min_row
+            max_row = merged.max_row + amount
+
+        shifted_merges.append(
+            (
+                min_row,
+                merged.min_col,
+                max_row,
+                merged.max_col,
             )
+        )
+
+    shifted_dimensions = {
+        index: copy(dimension)
+        for index, dimension in sheet.row_dimensions.items()
+        if index >= row_number
+    }
+
+    for index in shifted_dimensions:
+        del sheet.row_dimensions[index]
+
+    sheet.insert_rows(row_number, amount=amount)
+
+    for index, dimension in shifted_dimensions.items():
+        target_index = index + amount
+        dimension.index = target_index
+        sheet.row_dimensions[target_index] = dimension
+
+    for min_row, min_col, max_row, max_col in shifted_merges:
+        sheet.merge_cells(
+            start_row=min_row,
+            start_column=min_col,
+            end_row=max_row,
+            end_column=max_col,
+        )
+
+    for target_row in range(row_number, row_number + amount):
+        insert_data_row(sheet, target_row, row_template)
 
 # ==========================================================
 # Заполнение листа
@@ -210,15 +254,18 @@ def fill_sheet(sheet, rows):
     Заполняет отчет данными.
     """
 
+    row_template = capture_row_template(sheet, TEMPLATE_ROW)
+    insert_data_rows(
+        sheet,
+        FIRST_DATA_ROW,
+        len(rows),
+        row_template,
+    )
+
     current_row = FIRST_DATA_ROW
     current_number = 1
 
     for data in rows.itertuples(index=False):
-
-        insert_data_row(
-            sheet,
-            current_row,
-        )
 
         fill_row(
             sheet=sheet,
@@ -271,6 +318,19 @@ def write_cell(
         value = ""
 
     sheet[cell] = value
+
+
+def fill_inventory_context(sheet, context):
+    """Write report-level values into merged header anchors."""
+
+    sheet[OBJECT_NAME_CELL] = (
+        f"Наименование объекта: {context.object_name}"
+    )
+    sheet[OBJECT_ADDRESS_CELL] = f"Адрес: {context.object_address}"
+    sheet[STAFF_COUNT_CELL] = (
+        "Количество сотрудников (штат) на объекте: "
+        f"{context.staff_count}"
+    )
 
 
 # ==========================================================

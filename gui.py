@@ -1,9 +1,10 @@
 import FreeSimpleGUI as sg
 
-from config import INVENTORY_TEMPLATE, get_departments, get_workflow
+from config import get_departments, get_workflow
 from data_loader import load_excel
 from generators.inventory import generate_inventory_report
 from generators.passports import generate_passports
+from workflow_context import InventoryContext, calculate_staff_count
 
 
 def run():
@@ -20,6 +21,14 @@ def run():
             sg.Frame(
                 "Инвентаризационный отчёт",
                 [
+                    [
+                        sg.Text("Наименование объекта:"),
+                        sg.Input(key="-OBJECT_NAME-")
+                    ],
+                    [
+                        sg.Text("Адрес:"),
+                        sg.Input(key="-OBJECT_ADDRESS-")
+                    ],
                     [
                         sg.Text("Куда сохранить:"),
                         sg.Input(key="-INV_OUTPUT-"),
@@ -118,6 +127,14 @@ def run():
             sg.popup_error("Укажите путь сохранения инвентаризационного отчёта!")
             continue
 
+        if gen_inv and not values["-OBJECT_NAME-"]:
+            sg.popup_error("Укажите наименование объекта!")
+            continue
+
+        if gen_inv and not values["-OBJECT_ADDRESS-"]:
+            sg.popup_error("Укажите адрес объекта!")
+            continue
+
         if gen_passp and not values["-PASSP_OUTPUT-"]:
             sg.popup_error("Укажите путь сохранения паспортов!")
             continue
@@ -131,14 +148,26 @@ def run():
 
         print("Excel успешно загружен.\n")
 
+        workflow = get_workflow(values["-DEPARTMENT-"])
+
         # ---------- Генерация инвентаризации ----------
 
         if gen_inv:
             print("Создание инвентаризационного отчёта...")
 
+            selected_records = df.iloc[
+                start_row - 1:end_row
+            ].to_dict(orient="records")
+            inventory_context = InventoryContext(
+                workflow=workflow,
+                object_name=values["-OBJECT_NAME-"].strip(),
+                object_address=values["-OBJECT_ADDRESS-"].strip(),
+                staff_count=calculate_staff_count(selected_records),
+            )
+
             success, message = generate_inventory_report(
                 df=df,
-                template_path=INVENTORY_TEMPLATE,
+                context=inventory_context,
                 output_path=values["-INV_OUTPUT-"],
                 start_row=start_row,
                 end_row=end_row
@@ -154,8 +183,6 @@ def run():
 
         if gen_passp:
             print("Создание паспортов оборудования...")
-
-            workflow = get_workflow(values["-DEPARTMENT-"])
 
             success, message = generate_passports(
                 df=df,

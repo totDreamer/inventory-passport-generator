@@ -3,13 +3,17 @@
 from dataclasses import dataclass
 from typing import Iterable, Mapping
 
+from config import WorkflowConfig
+
 
 @dataclass(frozen=True)
 class InventoryContext:
     """Values entered once in the GUI for an inventory report."""
 
+    workflow: WorkflowConfig
     object_name: str
     object_address: str
+    staff_count: int
 
 
 def normalize_value(value: object) -> str:
