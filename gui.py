@@ -1,10 +1,44 @@
 import FreeSimpleGUI as sg
 
 from config import get_departments, get_workflow
-from data_loader import load_excel
+from data_loader import InputSchemaError, load_excel
 from generators.inventory import generate_inventory_report
 from generators.passports import generate_passports
+from record_selection import (
+    RecordSelectionError,
+    parse_row_range,
+    select_record_range,
+)
 from workflow_context import InventoryContext, calculate_staff_count
+
+
+def load_source_data(path):
+    """Load an Excel source and return a user-facing error instead of raising."""
+
+    try:
+        return load_excel(path), None
+    except FileNotFoundError:
+        return None, "Excel-файл не найден."
+    except PermissionError:
+        return None, "Нет доступа к Excel-файлу."
+    except InputSchemaError as exc:
+        detail = str(exc).removeprefix(
+            "Некорректная схема входного Excel: "
+        )
+        return (
+            None,
+            "Файл не соответствует ожидаемой структуре: " + detail,
+        )
+    except ValueError:
+        return (
+            None,
+            "Не удалось прочитать Excel-файл. "
+            "Проверьте его формат и содержимое.",
+        )
+    except OSError:
+        return None, "Не удалось открыть Excel-файл."
+    except Exception:
+        return None, "Не удалось загрузить Excel-файл."
 
 
 def run():
@@ -109,10 +143,12 @@ def run():
             continue
 
         try:
-            start_row = int(values["-START-"])
-            end_row = int(values["-END-"])
-        except ValueError:
-            sg.popup_error("Номера строк должны быть числами!")
+            start_row, end_row = parse_row_range(
+                values["-START-"],
+                values["-END-"],
+            )
+        except RecordSelectionError as exc:
+            sg.popup_error(str(exc))
             continue
 
         gen_inv = values["-GEN_INV-"]
@@ -144,18 +180,33 @@ def run():
         print("=" * 60)
         print("Чтение Excel...")
 
-        df = load_excel(values["-EXCEL-"])
+        df, load_error = load_source_data(values["-EXCEL-"])
+
+        if load_error:
+            sg.popup_error(load_error)
+            continue
 
         print("Excel успешно загружен.\n")
+
+        try:
+            selected_df = select_record_range(
+                df,
+                start_row,
+                end_row,
+            )
+        except RecordSelectionError as exc:
+            sg.popup_error(str(exc))
+            continue
+
+        selected_start_row = 1
+        selected_end_row = len(selected_df)
 
         # ---------- Генерация инвентаризации ----------
 
         if gen_inv:
             print("Создание инвентаризационного отчёта...")
 
-            selected_records = df.iloc[
-                start_row - 1:end_row
-            ].to_dict(orient="records")
+            selected_records = selected_df.to_dict(orient="records")
             inventory_context = InventoryContext(
                 object_name=values["-OBJECT_NAME-"].strip(),
                 object_address=values["-OBJECT_ADDRESS-"].strip(),
@@ -163,11 +214,11 @@ def run():
             )
 
             success, message = generate_inventory_report(
-                df=df,
+                df=selected_df,
                 context=inventory_context,
                 output_path=values["-INV_OUTPUT-"],
-                start_row=start_row,
-                end_row=end_row
+                start_row=selected_start_row,
+                end_row=selected_end_row
             )
 
             print(message)
@@ -184,11 +235,11 @@ def run():
             workflow = get_workflow(values["-DEPARTMENT-"])
 
             success, message = generate_passports(
-                df=df,
+                df=selected_df,
                 workflow=workflow,
                 output_path=values["-PASSP_OUTPUT-"],
-                start_row=start_row,
-                end_row=end_row
+                start_row=selected_start_row,
+                end_row=selected_end_row
             )
 
             print(message)
