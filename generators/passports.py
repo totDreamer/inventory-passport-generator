@@ -1,65 +1,115 @@
-import os
-import pandas as pd
 from copy import deepcopy
-from docxtpl import DocxTemplate
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
 from docx import Document
+from docxtpl import DocxTemplate
+
+from config import WorkflowConfig
+from workflow_adapters import get_passport_context_adapter
 
 
-def generate_passports(df, template_path, output_path, start_row, end_row):
+def _clear_document_body(document):
+    """Remove template content while preserving its section properties."""
+
+    body = document.element.body
+    section_properties = next(
+        (
+            deepcopy(element)
+            for element in body
+            if element.tag.endswith("sectPr")
+        ),
+        None,
+    )
+
+    for element in list(body):
+        body.remove(element)
+
+    return section_properties
+
+
+def _append_passport(final_document, passport_document):
+    """Append one rendered passport without its section properties."""
+
+    for element in passport_document.element.body:
+        if element.tag.endswith("sectPr"):
+            continue
+
+        if element.tag.endswith("p"):
+            texts = [
+                node.text
+                for node in element.iter()
+                if node.text and node.text.strip()
+            ]
+            if not texts:
+                continue
+
+        final_document.element.body.append(deepcopy(element))
+
+
+def generate_passports(
+    df,
+    workflow: WorkflowConfig,
+    output_path,
+    start_row,
+    end_row,
+):
+    """Render selected records with the configured workflow adapter."""
+
     try:
-
         rows = df.iloc[start_row - 1:end_row].to_dict(orient="records")
 
-        base_template = DocxTemplate(template_path)
-        base_template.render({})
-        base_template.save("~temp_base.docx")
+        if not rows:
+            raise ValueError(
+                "В выбранном диапазоне нет записей для создания паспортов."
+            )
 
-        final_doc = Document("~temp_base.docx")
+        context_adapter = get_passport_context_adapter(
+            workflow.passport_context_adapter
+        )
 
-        # Очищаем тело финального документа
-        for element in final_doc.element.body[:]:
-            final_doc.element.body.remove(element)
+        with TemporaryDirectory(prefix="inventory-passports-") as temp_dir:
+            temp_path = Path(temp_dir)
+            base_path = temp_path / "base.docx"
 
-        generated_count = 0
+            base_template = DocxTemplate(workflow.passport_template)
+            base_template.render({})
+            base_template.save(base_path)
 
-        for i, context in enumerate(rows, start=1):
-            try:
-                template = DocxTemplate(template_path)
-                template.render(context)
-                template.save("~temp_passport.docx")
+            final_document = Document(base_path)
+            section_properties = _clear_document_body(final_document)
 
-                temp_doc = Document("~temp_passport.docx")
+            for index, record in enumerate(rows, start=1):
+                try:
+                    context = context_adapter(record)
+                    rendered_path = temp_path / f"passport-{index}.docx"
 
-                for elem in temp_doc.element.body:
-                    # Исключаем пустые абзацы и служебные элементы (например, w:sectPr)
-                    if elem.tag.endswith("sectPr"):
-                        continue
-                    if elem.tag.endswith("p"):  # Параграф
-                        texts = [node.text for node in elem.iter() if node.text and node.text.strip()]
-                        if not texts:
-                            continue  # пропустить пустые параграфы
+                    template = DocxTemplate(workflow.passport_template)
+                    template.render(context)
+                    template.save(rendered_path)
 
-                    final_doc.element.body.append(deepcopy(elem))
+                    _append_passport(
+                        final_document,
+                        Document(rendered_path),
+                    )
+                except Exception as exc:
+                    raise RuntimeError(
+                        f"ошибка при создании паспорта {index}: {exc}"
+                    ) from exc
 
-                if i < len(rows):
-                    final_doc.add_page_break()
+                if index < len(rows):
+                    final_document.add_page_break()
 
-                generated_count += 1
+            if section_properties is not None:
+                final_document.element.body.append(section_properties)
 
-            except Exception as e:
-                print(f"Ошибка при создании паспорта {i}: {str(e)}")
+            final_document.save(output_path)
 
-        final_doc.save(output_path)
-        os.remove("~temp_base.docx")
-        os.remove("~temp_passport.docx")
+        return (
+            True,
+            f"Сгенерировано {len(rows)} паспортов в одном файле: "
+            f"{output_path}",
+        )
 
-        return True, f"Сгенерировано {generated_count} паспортов в одном файле: {output_path}"
-
-        # Сохраняем финальный файл
-        final_doc.save(output_path)
-        os.remove("~temp_base.docx")
-        os.remove("~temp_passport.docx")
-        return True, f"Сгенерировано {generated_count} паспортов в одном файле: {output_path}"
-
-    except Exception as e:
-        return False, f"Ошибка при создании паспортов: {str(e)}"
+    except Exception as exc:
+        return False, f"Ошибка при создании паспортов: {exc}"

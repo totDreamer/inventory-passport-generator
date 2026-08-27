@@ -10,7 +10,9 @@ Generation code belongs in `generators/`: `inventory.py` writes reports, `passpo
 
 `input/` and `output/` hold real data and reference results. They are Git-ignored and must never be edited, regenerated in place, or committed. `input/ДГД/` and `input/ДГК/` contain source workbooks. `output/ДГД/` has the expected inventory report; `output/ДГК/` also has the combined passport document. Treat them as the acceptance baseline. No DGD passport-output reference exists.
 
-Source workbooks use five descriptive rows followed by identifiers on row 6; the loader skips the first five. Preserve generator/template names such as `user_name`, `department`, `pc_mark`, `pc_model`, `pc_serial_number`, `cpu_model`, `hdd_size`, and `monitor_sn`. DGD and DGK layouts differ; DGK also has `pc_type`, `office_ver`, and `ibp`.
+Source workbooks use five descriptive rows followed by identifiers on row 6; the loader skips the first five. DGD and DGK use one identical 52-column schema, including `user_name`, `department`, `pc_mark`, `pc_model`, `monitor_model`, `pc_type`, `office_ver`, and canonical UPS fields: `ibp_dev`, `ibp_model`, `ibp_sn`, `ibp_inv_num`. Do not alter this schema without approval.
+
+The Word templates remain unchanged. Workflow adapters pass the canonical `ibp_*` fields to DGD and build DGK's single `ibp` value from them. The source intentionally has no mouse or keyboard fields; adapters must provide empty values for those template variables. `mac_addr` is also absent from the source schema and must default to an empty value when needed.
 
 ## Build, Test, and Development Commands
 

@@ -1,6 +1,6 @@
 import FreeSimpleGUI as sg
 
-from config import INVENTORY_TEMPLATE, get_departments, get_passport_template
+from config import INVENTORY_TEMPLATE, get_departments, get_workflow
 from data_loader import load_excel
 from generators.inventory import generate_inventory_report
 from generators.passports import generate_passports
@@ -108,6 +108,7 @@ def run():
 
         gen_inv = values["-GEN_INV-"]
         gen_passp = values["-GEN_PASSP-"]
+        generation_succeeded = True
 
         if not gen_inv and not gen_passp:
             sg.popup_error("Выберите хотя бы один тип документа!")
@@ -146,6 +147,7 @@ def run():
             print(message)
 
             if not success:
+                generation_succeeded = False
                 sg.popup_error(message)
 
         # ---------- Генерация паспортов ----------
@@ -153,13 +155,11 @@ def run():
         if gen_passp:
             print("Создание паспортов оборудования...")
 
-            department = values["-DEPARTMENT-"]
-
-            passport_template = get_passport_template(department)
+            workflow = get_workflow(values["-DEPARTMENT-"])
 
             success, message = generate_passports(
                 df=df,
-                template_path=passport_template,
+                workflow=workflow,
                 output_path=values["-PASSP_OUTPUT-"],
                 start_row=start_row,
                 end_row=end_row
@@ -168,11 +168,13 @@ def run():
             print(message)
 
             if not success:
+                generation_succeeded = False
                 sg.popup_error(message)
 
         print("\nГенерация завершена.")
         print("=" * 60)
 
-        sg.popup_ok("Документы успешно сформированы.")
+        if generation_succeeded:
+            sg.popup_ok("Документы успешно сформированы.")
 
     window.close()
